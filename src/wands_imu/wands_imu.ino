@@ -1,3 +1,66 @@
+#include "Wire.h"   
+ 
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <FS.h>
+#include <SPIFFS.h>
+#include <string.h>
+
+#define CMD_FROM_SNITCH
+// #define CMD_FROM_SPIFFS
+#define WAIT_TIME 20000
+
+#define CMD_SNITCH_SERIAL Serial2
+// WiFi - Client mode (for Tello)
+String ssidTello = "TELLO-AA0558";  // overridden later
+String passwordTello = "0000";  // overridden later
+String ipTello = "192.168.10.1";
+const int udpPortTello = 8889;
+
+char c_temp;
+char * s_command = "";
+
+// function prototype
+void writeSsid(String arg);
+void writePass(String arg);
+void writeDroneCmd(String arg);
+void clearDroneCmd(String arg);
+
+
+
+// command table
+typedef void (pfunc)(String);
+typedef struct
+{
+  char *cmd;    // command code
+  pfunc *func;  // function pointer
+} settingCommand_t;
+
+settingCommand_t settingCommandTable[] =
+{
+  // command code   function pointer
+  {"ssid",          writeSsid },      // write ssid to SSID.txt
+  {"pass",          writePass },      // write password to PASS.txt
+  {"cmd",           writeDroneCmd },  // write command to DRONECMD.txt
+  {"clear",         clearDroneCmd },  // clear DRONECMD.txt
+  {NULL,            NULL }            // terminator
+};
+
+// -- variable
+// pin
+int buttonState = HIGH;
+
+// WiFi - AP mode (for self)
+WiFiUDP udp;
+//char receiveBuffer[receiveBufferLen];
+
+// WiFi - Client mode (for Tello)
+bool connectedTello = false;
+
+// other
+bool settingModeEnable = false;
+
+
 /* MPU9250_MS5637_ESP32 Basic Example Code
  by: Kris Winer
  date: December 14, 2016
@@ -26,7 +89,6 @@
  GND ---------------------- GND
  
  */
-#include "Wire.h"   
 
 // See MS5637-02BA03 Low Voltage Barometric Pressure Sensor Data Sheet
 #define MS5637_RESET      0x1E
@@ -428,7 +490,10 @@ void setup()
     Serial.println(c, HEX);
     while(1) ; // Loop forever if communication doesn't happen
   }
-  
+
+  connectToWiFi(ssidTello.c_str(), passwordTello.c_str());
+
+
 }
 
 // YAW -> + cw
@@ -652,58 +717,119 @@ void loop()
    Serial.print(" ");
    Serial.print("pitch:");
     Serial.println(control_pitch);
-  if(state == STANDBY){
-    if(button==0){
-      Serial2.printf("command,");
-      delay(10);
-      Serial2.printf("takeoff,");
-      state = FLYING;
-      delay(1000);
-    }
-  }
-  else if(state == FLYING){
-    if(button == 0){
-      delay(100);
-      Serial2.printf("rc 0 0 0 0,");
-      Serial2.printf("land,");
-      state = STANDBY;
-      delay(5000);      
-    }
-    else{
-      if( x < 10){
-        Serial.printf("flip r,");
-        Serial2.printf("flip r,");
-        delay(200);
+
+  bool no_command = false;
+  s_command = "";
+        
+  if (connectedTello == true){
+  
+    if(state == STANDBY){
+      if(button==0){
+        Serial2.printf("command,");
+        
+        delay(10);
+        Serial2.printf("takeoff,");
+  
+
+        state = FLYING;
+        delay(1000);
+        s_command = "command,takeoff,";
+
       }
-      else if( x >30){
-        Serial2.printf("flip l,");
-          Serial.printf("flip l,");
-           delay(200);
+    }
+    else if(state == FLYING){
+      if(button == 0){
+        delay(100);
+        Serial2.printf("rc 0 0 0 0,");
+        Serial2.printf("land,");
+
+        state = STANDBY;
+        delay(5000);  
+        s_command = "rc 0 0 0 0,land,";
+  
       }
       else{
-        //control_yaw += ((x-18)*10);
-        control_pitch -= (17-y)*2;
-        //control_thr += (int)((float)(17-y)*3*sinf(ang_roll));
+        if( x < 10){
+          Serial.printf("flip r,");
+          Serial2.printf("flip r,");
+
+          delay(200);
+          s_command = "flip r,";
+
+        }
+        else if( x >30){
+          Serial2.printf("flip l,");
+          Serial.printf("flip l,");
+         delay(200);
+         s_command = "flip l,";
+
+        }
+        else{
+          //control_yaw += ((x-18)*10);
+          control_pitch -= (17-y)*2;
+          //control_thr += (int)((float)(17-y)*3*sinf(ang_roll));
+          
+          if(control_thr > 100) control_thr = 100;
+          else if(control_thr < -100) control_thr = -100;
+    
+          if(control_pitch > 100) control_pitch = 100;
+          else if(control_pitch < -100) control_pitch = -100;
+              
+          if(control_yaw > 100) control_yaw = 100;
+          else if(control_yaw < -100) control_yaw = -100;
+    
+          if(control_roll > 100) control_roll = 100;
+          else if(control_roll < -100) control_roll = -100;
+          
         
-        if(control_thr > 100) control_thr = 100;
-        else if(control_thr < -100) control_thr = -100;
+  //        Serial.printf("rc %d %d %d %d,", control_roll, control_pitch, control_thr, control_yaw);
+  //        Serial.println(vir_rad);
+          Serial2.printf("rc %d %d %d %d,", control_roll, control_pitch, control_thr, control_yaw);
+          sprintf(s_command,"rc %d %d %d %d,", control_roll, control_pitch, control_thr, control_yaw);
+   
+        }
+      }
+    }
+
+    String fileData(s_command);
+    int fileDataLen = fileData.length();
+    int indexPos = 0;
+    int startPos = 0;
+    int delayIndexPos = 0;
+
+    while(1)
+    {
+      indexPos = fileData.indexOf(",", startPos);
+      if (indexPos != -1)
+      {
+        // cut text to comma
+        String sendData = fileData.substring(startPos, indexPos);
   
-        if(control_pitch > 100) control_pitch = 100;
-        else if(control_pitch < -100) control_pitch = -100;
-            
-        if(control_yaw > 100) control_yaw = 100;
-        else if(control_yaw < -100) control_yaw = -100;
+        if (sendData.startsWith("delay "))
+        {
+          delayIndexPos = sendData.indexOf(" ");
+          String arg = sendData.substring(delayIndexPos + 1);
+          Serial.print("delay : ");
+          Serial.println(arg);
+          delay(arg.toInt());
   
-        if(control_roll > 100) control_roll = 100;
-        else if(control_roll < -100) control_roll = -100;
-        
-      
-//        Serial.printf("rc %d %d %d %d,", control_roll, control_pitch, control_thr, control_yaw);
-//        Serial.println(vir_rad);
-        Serial2.printf("rc %d %d %d %d,", control_roll, control_pitch, control_thr, control_yaw);
+        } else {
+          // send to UDP
+          Serial.print("send : ");
+          Serial.println(sendData);
+          udp.beginPacket(ipTello.c_str(), udpPortTello);
+          udp.printf(sendData.c_str());
+          udp.endPacket();
+        }
+        startPos = indexPos + 1;
+  
+      } else {
+        // end of file
+        break;
       }
     }
   }
+  
  
 }
 
@@ -1518,4 +1644,115 @@ void MadgwickQuaternionUpdate(uint8_t mpu9250_address, float ax, float ay, float
     q[2] = q3 * norm;
     q[3] = q4 * norm;
 
+}
+
+// start connect to WiFi AP(Tello)
+void connectToWiFi(const char *ssid, const char *password){
+  Serial.print("Connecting : ");
+  Serial.println(ssid);
+
+  // delete old config
+  WiFi.disconnect(true);
+
+  //register event handler
+  WiFi.onEvent(wifiEvent);
+
+  WiFi.begin(ssid, password);
+  Serial.println("Waiting for WiFi connection...");
+}
+
+// -- client(controll Tello) mode process function
+void controlTelloProcess(void)
+{
+
+  //send command from snitch, in real time.
+
+  unsigned long previous_time = millis();
+  bool no_command = false;
+  s_command = "";
+  
+ 
+  while (!CMD_SNITCH_SERIAL.available())
+  {
+    if(millis()-previous_time > WAIT_TIME)
+    {
+      no_command = true;
+      break;
+    }
+  };
+
+  if(false == no_command)
+  {
+    while (CMD_SNITCH_SERIAL.available())
+    {
+      c_temp = CMD_SNITCH_SERIAL.read();
+      //s_command.concat(c_temp);
+    }
+    Serial.println("end read command");
+  }  else  {
+    s_command = "command,land,";
+  };
+
+  String fileData = s_command;
+  int fileDataLen = fileData.length();
+  int indexPos = 0;
+  int startPos = 0;
+  int delayIndexPos = 0;
+
+  while(1)
+  {
+    indexPos = fileData.indexOf(",", startPos);
+    if (indexPos != -1)
+    {
+      // cut text to comma
+      String sendData = fileData.substring(startPos, indexPos);
+
+      if (sendData.startsWith("delay "))
+      {
+        delayIndexPos = sendData.indexOf(" ");
+        String arg = sendData.substring(delayIndexPos + 1);
+        Serial.print("delay : ");
+        Serial.println(arg);
+        delay(arg.toInt());
+
+      } else {
+        // send to UDP
+        Serial.print("send : ");
+        Serial.println(sendData);
+        udp.beginPacket(ipTello.c_str(), udpPortTello);
+        udp.printf(sendData.c_str());
+        udp.endPacket();
+      }
+      startPos = indexPos + 1;
+
+    } else {
+      // end of file
+      break;
+    }
+  }
+  Serial.println("finish!");
+
+}
+
+//wifi event handler
+void wifiEvent(WiFiEvent_t event){
+
+  switch(event) {
+    case SYSTEM_EVENT_STA_GOT_IP:
+        // connected 
+        Serial.println("WiFi connected!");
+        Serial.print("IP address : ");
+        Serial.println(WiFi.localIP());
+
+        //initialize UDP
+        udp.begin(WiFi.localIP(), udpPortTello);
+        connectedTello = true;
+        break;
+
+    case SYSTEM_EVENT_STA_DISCONNECTED:
+        // disconnected
+        Serial.println("WiFi lost connection");
+        connectedTello = false;
+        break;
+  }
 }

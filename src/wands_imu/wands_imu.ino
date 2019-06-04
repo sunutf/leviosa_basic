@@ -2,8 +2,8 @@
  
 #include <WiFi.h>
 #include <WiFiUdp.h>
-#include <FS.h>
-#include <SPIFFS.h>
+//#include <FS.h>
+//#include <SPIFFS.h>
 #include <string.h>
 
 #define CMD_FROM_SNITCH
@@ -12,7 +12,7 @@
 
 #define CMD_SNITCH_SERIAL Serial2
 // WiFi - Client mode (for Tello)
-String ssidTello = "TELLO-AA0558";  // overridden later
+String ssidTello = "TELLO-D30D28";  // overridden later
 String passwordTello = "0000";  // overridden later
 String ipTello = "192.168.10.1";
 const int udpPortTello = 8889;
@@ -260,7 +260,7 @@ bool settingModeEnable = false;
 #define MS5637_ADDRESS 0x76   // Address of altimeter
 #define MPU9250_ADDRESS_DEFAULT AD0
 
-#define SerialDebug true  // set to true to get Serial output for debugging
+#define SerialDebug false  // set to true to get Serial output for debugging
 
 // Set initial input parameters
 enum Ascale {
@@ -378,8 +378,8 @@ bool flip_state = STANDBY;
 void setup()
 {
   Serial.begin(115200);
-  Serial2.begin(115200);
-  Serial2.print("command,");
+//  Serial2.begin(115200);
+//  Serial2.print("command,");
   pinMode(21, INPUT_PULLUP);
   
   delay(4000);
@@ -671,8 +671,8 @@ void loop()
     sum = 0;    
     }
 
-  int x = analogRead(A0)/100;
-  int y = analogRead(A1)/100;
+  int x = analogRead(A2)/100;
+  int y = analogRead(A3)/100;
   int button = digitalRead(21);
 
   static float vir_rad = 1;
@@ -726,10 +726,10 @@ void loop()
   
     if(state == STANDBY){
       if(button==0){
-        Serial2.printf("command,");
-        
-        delay(10);
-        Serial2.printf("takeoff,");
+//        Serial2.printf("command,");
+//        
+//        delay(10);
+//        Serial2.printf("takeoff,");
   
 
         state = FLYING;
@@ -741,8 +741,8 @@ void loop()
     else if(state == FLYING){
       if(button == 0){
         delay(100);
-        Serial2.printf("rc 0 0 0 0,");
-        Serial2.printf("land,");
+//        Serial2.printf("rc 0 0 0 0,");
+//        Serial2.printf("land,");
 
         state = STANDBY;
         delay(5000);  
@@ -751,16 +751,16 @@ void loop()
       }
       else{
         if( x < 10){
-          Serial.printf("flip r,");
-          Serial2.printf("flip r,");
+//          Serial.printf("flip r,");
+//          Serial2.printf("flip r,");
 
           delay(200);
           s_command = "flip r,";
 
         }
         else if( x >30){
-          Serial2.printf("flip l,");
-          Serial.printf("flip l,");
+//          Serial2.printf("flip l,");
+//          Serial.printf("flip l,");
          delay(200);
          s_command = "flip l,";
 
@@ -785,7 +785,7 @@ void loop()
         
   //        Serial.printf("rc %d %d %d %d,", control_roll, control_pitch, control_thr, control_yaw);
   //        Serial.println(vir_rad);
-          Serial2.printf("rc %d %d %d %d,", control_roll, control_pitch, control_thr, control_yaw);
+//          Serial2.printf("rc %d %d %d %d,", control_roll, control_pitch, control_thr, control_yaw);
           sprintf(s_command,"rc %d %d %d %d,", control_roll, control_pitch, control_thr, control_yaw);
    
         }

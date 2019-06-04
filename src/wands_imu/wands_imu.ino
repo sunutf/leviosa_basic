@@ -383,7 +383,8 @@ void setup()
   pinMode(21, INPUT_PULLUP);
   
   delay(4000);
- 
+
+  connectToWiFi(ssidTello.c_str(), passwordTello.c_str()); 
   
   Wire.begin(23, 22, 400000); //(SDA, SCL) (21,22) are default on ESP32, 400 kHz I2C clock
   delay(1000);
@@ -491,7 +492,7 @@ void setup()
     while(1) ; // Loop forever if communication doesn't happen
   }
 
-  connectToWiFi(ssidTello.c_str(), passwordTello.c_str());
+ 
 
 
 }
